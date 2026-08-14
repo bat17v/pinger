@@ -12,6 +12,14 @@ fn main() {
     app.run();
 }
 
+#[derive(Clone)]
+struct AppWidgets {
+    window: ApplicationWindow,
+    label: Label,
+    ans1: Button,
+    ans2: Button,
+}
+
 fn build_ui(app: &Application) {
     let window = ApplicationWindow::builder()
         .application(app)
@@ -69,9 +77,22 @@ fn build_ui(app: &Application) {
     });
     window.add_controller(controller);
 
-    let window_clone = window.clone();
-    glib::spawn_future_local(async move {
-    });
+    let widgets = AppWidgets{
+        window: window.clone(),
+        label: ask_label.clone(),
+        ans1: ans1_button.clone(),
+        ans2: ans2_button.clone()
+    };
+    run_pinger_loop(widgets);
 
     window.present();
+}
+
+fn run_pinger_loop(widgets: AppWidgets) {
+    glib::spawn_future_local(async move {
+        loop {
+            glib::timeout_future(std::time::Duration::from_secs(5)).await;
+            widgets.window.set_visible(true);
+        }
+    });
 }
