@@ -1,10 +1,8 @@
 use gtk::glib;
-use gtk::glib::{Propagation};
+use gtk::glib::Propagation;
 use gtk::{prelude::*, CssProvider};
 use gtk::{Application, ApplicationWindow, Box, Orientation, Label, Button};
 use gtk4_layer_shell::{Layer, LayerShell, KeyboardMode};
-
-use async_channel;
 
 fn main() {
     let app = Application::builder()
@@ -12,11 +10,6 @@ fn main() {
         .build();
     app.connect_activate(build_ui);
     app.run();
-}
-
-enum AppSignal {
-    First,
-    Second,
 }
 
 fn build_ui(app: &Application) {
@@ -76,30 +69,8 @@ fn build_ui(app: &Application) {
     });
     window.add_controller(controller);
 
-
-    let (tx, rx) = async_channel::unbounded::<AppSignal>();
-
     let window_clone = window.clone();
     glib::spawn_future_local(async move {
-        while let Ok(signal) = rx.recv().await {
-            match signal {
-                AppSignal::First => {
-                    println!("First");
-                    window_clone.set_visible(true);
-                }
-                AppSignal::Second => {
-                    println!("Second");
-                    window_clone.set_visible(true);
-                }
-            }
-        }
-    });
-
-    std::thread::spawn(move || {
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(5));
-            let _ = tx.send_blocking(AppSignal::First);
-        }
     });
 
     window.present();
