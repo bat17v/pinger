@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 gtk = { version = "0.9", package = "gtk4" }
 gtk4-layer-shell = "0.4"
+async-channel = "2.3"
