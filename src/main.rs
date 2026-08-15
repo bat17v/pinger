@@ -22,7 +22,6 @@ fn main() {
         .build();
     app.connect_activate(build_ui);
     app.run();
-    //println!("{:?}", read_config("local/test.txt"));
 }
 
 #[derive(Clone)]
@@ -119,10 +118,10 @@ fn build_ui(app: &Application) {
     let ask_box = Box::new(Orientation::Vertical, 10);
     let ask_label = Label::new(Some("Писать pinger"));
     ask_label.add_css_class("title");
-    ask_box.set_margin_top(10);
     ask_box.append(&ask_label);
 
     let buttons_box = Box::new(Orientation::Horizontal, 30);
+    buttons_box.set_margin_top(20);
     buttons_box.set_halign(gtk::Align::Center);
 
     let ans1_button = Button::with_label("Делаю");
@@ -131,6 +130,11 @@ fn build_ui(app: &Application) {
     ans2_button.add_css_class("ans-btn");
     buttons_box.append(&ans1_button);
     buttons_box.append(&ans2_button);
+
+    let info_label = Label::new(Some("Skips: 4\nStep: Пишу напоминалку"));
+    info_label.set_justify(gtk::Justification::Center);
+    info_label.set_margin_top(15);
+    ask_box.append(&info_label);
     ask_box.append(&buttons_box);
 
     window.set_child(Some(&ask_box));

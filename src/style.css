@@ -1,4 +1,30 @@
 * {
     outline: none;
-    font-size: 18px;
+    all: unset;
+    font-size: 15px;
+    color: blue;
+}
+
+button:hover {
+    background-color: #eeeeff;
+}
+
+.window, .ans-btn {
+    border: blue solid;
+    border-radius: 20px;
+    background-color: white;
+}
+
+.window {
+    border-width: 2px;
+    padding: 14px;
+}
+
+.ans-btn {
+    border-width: 1px;
+    padding: 8px;
+}
+
+.title {
+    font-size: 20px;
 }
