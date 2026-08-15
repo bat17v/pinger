@@ -1,3 +1,6 @@
+use std::fs;
+use rand::Rng;
+
 use gtk::glib;
 use gtk::glib::Propagation;
 use gtk::{prelude::*, CssProvider};
@@ -9,7 +12,8 @@ fn main() {
         .application_id("ru.pinger.daemon")
         .build();
     app.connect_activate(build_ui);
-    app.run();
+    //app.run();
+    println!("{:?}", read_config("test.txt"));
 }
 
 #[derive(Clone)]
@@ -18,6 +22,46 @@ struct AppWidgets {
     label: Label,
     ans1: Button,
     ans2: Button,
+}
+
+#[derive(Debug)]
+struct Task {
+    start: Option<i32>,
+    duration: Option<i32>,
+    title: String,
+    code: String,
+}
+
+fn read_config(path: &str) -> Vec<Task> {
+    let mut rng = rand::thread_rng();
+    fs::read_to_string(path)
+        .expect("Cannot find config!")
+        .lines().map(String::from)
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| {
+            let mut start = None;
+            let mut duration = None;
+            let mut title_parts = Vec::new();
+            let mut code_opt = None;
+            
+            for p in s.split(' ') {
+                if p.is_empty() {continue;}
+                
+                if p.starts_with('$') {
+                    start = Some(p[1..].parse::<i32>().unwrap());
+                } else if p.starts_with('~') {
+                    duration = Some(p[1..].parse::<i32>().unwrap());
+                } else if p.starts_with('@') {
+                    code_opt = Some(p[1..].to_string());
+                } else {
+                    title_parts.push(p);
+                }
+            }
+
+            let code = code_opt.unwrap_or_else(|| rng.gen_range(1000..99999).to_string());
+
+            Task{start, duration, title: title_parts.join(" "), code}
+        }).collect()
 }
 
 fn build_ui(app: &Application) {
