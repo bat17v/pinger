@@ -1,12 +1,15 @@
-use std::fs;
-use rand::Rng;
+use std::{fs, collections::HashMap, cell::RefCell, rc::Rc};
+
+//use rand::Rng;
 use chrono::{Local, Timelike};
 
 use gtk::glib;
 use gtk::glib::Propagation;
 use gtk::{prelude::*, CssProvider};
 use gtk::{Application, ApplicationWindow, Box, Orientation, Label, Button};
+
 use gtk4_layer_shell::{Layer, LayerShell, KeyboardMode};
+
 
 fn get_now() -> i32 {
     let now = Local::now();
@@ -19,7 +22,7 @@ fn main() {
         .build();
     app.connect_activate(build_ui);
     app.run();
-    //println!("{:?}", read_config("test.txt"));
+    //println!("{:?}", read_config("local/test.txt"));
 }
 
 #[derive(Clone)]
@@ -28,6 +31,8 @@ struct AppWidgets {
     label: Label,
     ans1: Button,
     ans2: Button,
+    statuses: Rc<RefCell<HashMap<String, TaskStatus>>>,
+    current_task_code: Rc<RefCell<Option<String>>>, 
 }
 
 #[derive(Debug)]
@@ -36,6 +41,12 @@ struct Task {
     duration: Option<i32>,
     title: String,
     code: String,
+}
+
+#[derive(Clone, Default, Debug)]
+struct TaskStatus {
+    started: bool,
+    skip_count: i32
 }
 
 fn parse_time(t: &str) -> i32 {
@@ -52,7 +63,7 @@ fn parse_time(t: &str) -> i32 {
 }
 
 fn read_config(path: &str) -> Vec<Task> {
-    let mut rng = rand::thread_rng();
+    //let mut rng = rand::thread_rng();
     fs::read_to_string(path)
         .expect("Cannot read config!")
         .lines().map(String::from)
@@ -102,9 +113,12 @@ fn build_ui(app: &Application) {
         &provider,
         gtk::STYLE_PROVIDER_PRIORITY_APPLICATION
     );
+
+    window.add_css_class("window");
     
     let ask_box = Box::new(Orientation::Vertical, 10);
     let ask_label = Label::new(Some("Писать pinger"));
+    ask_label.add_css_class("title");
     ask_box.set_margin_top(10);
     ask_box.append(&ask_label);
 
@@ -113,25 +127,30 @@ fn build_ui(app: &Application) {
 
     let ans1_button = Button::with_label("Делаю");
     let ans2_button = Button::with_label("Закрыть");
+    ans1_button.add_css_class("ans-btn");
+    ans2_button.add_css_class("ans-btn");
     buttons_box.append(&ans1_button);
     buttons_box.append(&ans2_button);
     ask_box.append(&buttons_box);
 
     window.set_child(Some(&ask_box));
-    window.set_visible(false);
 
     let window_clone = window.clone();
     ans2_button.connect_clicked(move |_| {
         window_clone.set_visible(false);
     });
 
+    let statuses = Rc::new(RefCell::new(HashMap::<String, TaskStatus>::new()));
+    let current_task_code = Rc::new(RefCell::new(None::<String>));
+
     let controller = gtk::EventControllerKey::new();
     let ans1_clone = ans1_button.clone();
     let ans2_clone = ans2_button.clone();
+
     controller.connect_key_pressed(move |_, _, keycode, _| {
         match keycode {
             41 => {
-                ans1_clone.emit_clicked();
+                ans1_clone.emit_clicked(); 
             }
             44 => {
                 ans2_clone.emit_clicked();
@@ -142,26 +161,47 @@ fn build_ui(app: &Application) {
     });
     window.add_controller(controller);
 
-    let widgets = AppWidgets{
+    let widgets = AppWidgets {
         window: window.clone(),
         label: ask_label.clone(),
         ans1: ans1_button.clone(),
-        ans2: ans2_button.clone()
+        ans2: ans2_button.clone(),
+        statuses: statuses.clone(),
+        current_task_code: current_task_code.clone(),
     };
-    run_pinger_loop(widgets);
 
-    window.present();
+    let statuses_clone = statuses.clone();
+    let current_code_clone = current_task_code.clone();
+    let window_clone = window.clone();
+
+    ans1_button.connect_clicked(move |_| {
+        if let Some(ref code) = *current_code_clone.borrow() {
+            let mut status_map = statuses_clone.borrow_mut();
+            let task_status = status_map.entry(code.clone()).or_insert_with(TaskStatus::default);
+            task_status.started = true;
+            window_clone.set_visible(false);
+        }
+    });
+
+    run_pinger_loop(widgets);
 }
 
 fn run_pinger_loop(widgets: AppWidgets) {
     glib::spawn_future_local(async move {
         loop {
             glib::timeout_future(std::time::Duration::from_secs(5)).await;
-            let tasks = read_config("test.txt");
+            let tasks = read_config("local/test.txt");
+            
             for task in tasks {
-                if task.start.unwrap_or(0) <= get_now() {
+                let is_started = {
+                    let mut status_map = widgets.statuses.borrow_mut();
+                    let task_status = status_map.entry(task.code.clone()).or_insert_with(TaskStatus::default);
+                    task_status.started
+                };
+                if task.start.unwrap_or(0) <= get_now() && !is_started {
+                    *widgets.current_task_code.borrow_mut() = Some(task.code.clone());
                     widgets.label.set_text(&task.title);
-                    widgets.window.set_visible(true);
+                    widgets.window.present();
                     break;
                 }
             }
