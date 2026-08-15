@@ -1,3 +1,0 @@
-$23:00 finish pinger
-    
-$02:00 start go to bad 

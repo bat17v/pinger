@@ -1,5 +1,6 @@
 use std::fs;
 use rand::Rng;
+use chrono::{Local, Timelike};
 
 use gtk::glib;
 use gtk::glib::Propagation;
@@ -7,13 +8,18 @@ use gtk::{prelude::*, CssProvider};
 use gtk::{Application, ApplicationWindow, Box, Orientation, Label, Button};
 use gtk4_layer_shell::{Layer, LayerShell, KeyboardMode};
 
+fn get_now() -> i32 {
+    let now = Local::now();
+    return (now.hour() * 60 + now.minute()) as i32;
+}
+
 fn main() {
     let app = Application::builder()
         .application_id("ru.pinger.daemon")
         .build();
     app.connect_activate(build_ui);
-    //app.run();
-    println!("{:?}", read_config("test.txt"));
+    app.run();
+    //println!("{:?}", read_config("test.txt"));
 }
 
 #[derive(Clone)]
@@ -32,10 +38,23 @@ struct Task {
     code: String,
 }
 
+fn parse_time(t: &str) -> i32 {
+    let parts: Vec<&str> = t.split(':').collect();
+    match parts.len() {
+        1 => parts[0].parse::<i32>().expect("Expected i32 in time!"),
+        2 => {
+            let h = parts[0].parse::<i32>().expect("Expected i32 in time!");
+            let m = parts[1].parse::<i32>().expect("Expected i32 in time!");
+            h * 60 + m
+        }
+        _ => panic!("You can use only mm or hh:mm")
+    }
+}
+
 fn read_config(path: &str) -> Vec<Task> {
     let mut rng = rand::thread_rng();
     fs::read_to_string(path)
-        .expect("Cannot find config!")
+        .expect("Cannot read config!")
         .lines().map(String::from)
         .filter(|s| !s.trim().is_empty())
         .map(|s| {
@@ -48,9 +67,9 @@ fn read_config(path: &str) -> Vec<Task> {
                 if p.is_empty() {continue;}
                 
                 if p.starts_with('$') {
-                    start = Some(p[1..].parse::<i32>().unwrap());
+                    start = Some(parse_time(&p[1..]));
                 } else if p.starts_with('~') {
-                    duration = Some(p[1..].parse::<i32>().unwrap());
+                    duration = Some(parse_time(&p[1..]));
                 } else if p.starts_with('@') {
                     code_opt = Some(p[1..].to_string());
                 } else {
@@ -58,7 +77,8 @@ fn read_config(path: &str) -> Vec<Task> {
                 }
             }
 
-            let code = code_opt.unwrap_or_else(|| rng.gen_range(1000..99999).to_string());
+            //let code = code_opt.unwrap_or_else(|| rng.gen_range(1000..99999).to_string());
+            let code = code_opt.unwrap_or(start.unwrap().to_string());
 
             Task{start, duration, title: title_parts.join(" "), code}
         }).collect()
@@ -98,6 +118,7 @@ fn build_ui(app: &Application) {
     ask_box.append(&buttons_box);
 
     window.set_child(Some(&ask_box));
+    window.set_visible(false);
 
     let window_clone = window.clone();
     ans2_button.connect_clicked(move |_| {
@@ -136,7 +157,14 @@ fn run_pinger_loop(widgets: AppWidgets) {
     glib::spawn_future_local(async move {
         loop {
             glib::timeout_future(std::time::Duration::from_secs(5)).await;
-            widgets.window.set_visible(true);
+            let tasks = read_config("test.txt");
+            for task in tasks {
+                if task.start.unwrap_or(0) <= get_now() {
+                    widgets.label.set_text(&task.title);
+                    widgets.window.set_visible(true);
+                    break;
+                }
+            }
         }
     });
 }

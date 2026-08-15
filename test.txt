@@ -1,3 +1,0 @@
-$23 finish pinger
-    
-$2 start go to bad @fixed
