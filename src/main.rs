@@ -41,7 +41,7 @@ struct Task {
 struct TaskStatus {
     started: bool,
     skip_count: i32,
-    time_shift: i32
+    real_start: Option<i32>
 }
 
 pub enum Action {
@@ -69,7 +69,7 @@ impl AppController {
         if let Some(ref code) = *self.current_code.borrow() {
             let mut status_map = self.statuses.borrow_mut();
             let task_status = status_map.entry(code.clone()).or_insert_with(TaskStatus::default);
-            task_status.time_shift += 60;
+            task_status.real_start = Some(get_now() + 1);
         }
         return Action::HideWindow;
     }
@@ -81,15 +81,21 @@ impl AppController {
         }
     }
     pub fn regular(&self) -> Action {
-        let tasks = read_config("local/test.txt");
+        let config_path;
+        if let Ok(home) = std::env::var("HOME") {
+            config_path = format!("{}/.config/pinger.conf", home);
+        } else {
+            panic!("Cannot find config in your home!")
+        }
+        let tasks = read_config(&config_path);
         
         for task in tasks {
-            let is_started = {
-                let mut status_map = self.statuses.borrow_mut();
-                let task_status = status_map.entry(task.code.clone()).or_insert_with(TaskStatus::default);
-                task_status.started
-            };
-            if task.start.unwrap_or(0) <= get_now() && !is_started {
+            let mut status_map = self.statuses.borrow_mut();
+            let task_status = status_map.entry(task.code.clone()).or_insert_with(TaskStatus::default);
+            
+            let start = task_status.real_start.unwrap_or(task.start.unwrap_or(0));
+            let now = get_now();
+            if start <= now && now <= start + task.duration.unwrap_or(20) && !task_status.started {
                 let mut current_code_mut = self.current_code.borrow_mut();
                 *current_code_mut = Some(task.code);
                 return Action::ShowWindow{title: task.title};
@@ -157,7 +163,7 @@ fn build_ui(gtk_app: &Application, app_controller: &Rc<AppController>) {
     window.set_keyboard_mode(KeyboardMode::OnDemand);
 
     let provider = CssProvider::new();
-    provider.load_from_path("src/style.css");
+    provider.load_from_data(include_str!("style.css"));
     gtk::style_context_add_provider_for_display(
         &gtk::prelude::WidgetExt::display(&window),
         &provider,
