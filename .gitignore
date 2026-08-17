@@ -1,2 +1,11 @@
+# Cargo builds
 /target
+
+# Local files
 /local
+
+# Arch Linux Packages
+*.pkg.tar.zst
+*.pkg.tar.xz
+/packaging/archlinux/src
+/packaging/archlinux/pkg

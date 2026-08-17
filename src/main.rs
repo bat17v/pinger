@@ -85,7 +85,7 @@ impl AppController {
         if let Ok(home) = std::env::var("HOME") {
             config_path = format!("{}/.config/pinger.conf", home);
         } else {
-            panic!("Cannot find config in your home!")
+            panic!("Set HOME env variable!")
         }
         let tasks = read_config(&config_path);
         
@@ -203,7 +203,7 @@ fn build_ui(gtk_app: &Application, app_controller: &Rc<AppController>) {
             match action {
                 Action::ShowWindow { title } => {
                     ask_label.set_text(&title);
-                    window.present();
+                    window.set_visible(true);
                 }
                 Action::HideWindow => {
                     window.set_visible(false);

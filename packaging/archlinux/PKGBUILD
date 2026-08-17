@@ -1,0 +1,25 @@
+pkgname=pinger-tm
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Pinger Time Management for Wayland"
+arch=('x86_64')
+url="https://github.com/bat17v/pinger"
+license=('MIT')
+
+depends=('gtk4' 'gtk4-layer-shell')
+
+makedepends=('rust' 'cargo')
+
+build() {
+    cd "$startdir/../.."
+
+    cargo build --release --locked
+}
+
+package () {
+    cd "$startdir/../.."
+
+    install -Dm755 "target/release/pinger" "$pkgdir/usr/bin/pinger"
+
+    install -Dm644 "$startdir/../pinger.service" "$pkgdir/usr/lib/systemd/user/pinger.service"
+}
