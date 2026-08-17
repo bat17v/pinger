@@ -10,6 +10,12 @@ depends=('gtk4' 'gtk4-layer-shell')
 
 makedepends=('rust' 'cargo')
 
+pkgver() {
+    cd "$startdir/../.."
+  
+    awk -F '"' '/^version/ {print $2}' Cargo.toml
+}
+
 build() {
     cd "$startdir/../.."
 
