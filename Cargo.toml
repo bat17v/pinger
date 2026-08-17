@@ -2,6 +2,7 @@
 name = "pinger"
 version = "0.2.0"
 edition = "2024"
+publish = false
 
 [dependencies]
 rand = "0.8"
