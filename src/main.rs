@@ -20,19 +20,14 @@ fn main() {
     let app = Application::builder()
         .application_id("ru.pinger.daemon")
         .build();
-    app.connect_activate(build_ui);
+    let controller = Rc::new(AppController::default());
+    let controller_clone = controller.clone();
+    app.connect_activate(move |app| {
+        build_ui(&app, &controller_clone);
+    });
     app.run();
 }
 
-#[derive(Clone)]
-struct AppWidgets {
-    window: ApplicationWindow,
-    label: Label,
-    ans1: Button,
-    ans2: Button,
-    statuses: Rc<RefCell<HashMap<String, TaskStatus>>>,
-    current_task_code: Rc<RefCell<Option<String>>>, 
-}
 
 #[derive(Debug)]
 struct Task {
@@ -45,7 +40,63 @@ struct Task {
 #[derive(Clone, Default, Debug)]
 struct TaskStatus {
     started: bool,
-    skip_count: i32
+    skip_count: i32,
+    time_shift: i32
+}
+
+pub enum Action {
+    ShowWindow { title: String },
+    HideWindow,
+    DoNothing,
+}
+
+#[derive(Default)]
+pub struct AppController {
+    statuses: Rc<RefCell<HashMap<String, TaskStatus>>>,
+    current_code: Rc<RefCell<Option<String>>>
+}
+
+impl AppController {
+    pub fn click1(&self) -> Action {
+        if let Some(ref code) = *self.current_code.borrow() {
+            let mut status_map = self.statuses.borrow_mut();
+            let task_status = status_map.entry(code.clone()).or_insert_with(TaskStatus::default);
+            task_status.started = true;
+        }
+        return Action::HideWindow;
+    }
+    pub fn click2(&self) -> Action {
+        if let Some(ref code) = *self.current_code.borrow() {
+            let mut status_map = self.statuses.borrow_mut();
+            let task_status = status_map.entry(code.clone()).or_insert_with(TaskStatus::default);
+            task_status.time_shift += 60;
+        }
+        return Action::HideWindow;
+    }
+    pub fn keypress(&self, keycode: u32) -> Action {
+        match keycode {
+            41 => self.click1(),
+            44 => self.click2(),
+            _ => Action::DoNothing,
+        }
+    }
+    pub fn regular(&self) -> Action {
+        let tasks = read_config("local/test.txt");
+        
+        for task in tasks {
+            let is_started = {
+                let mut status_map = self.statuses.borrow_mut();
+                let task_status = status_map.entry(task.code.clone()).or_insert_with(TaskStatus::default);
+                task_status.started
+            };
+            if task.start.unwrap_or(0) <= get_now() && !is_started {
+                let mut current_code_mut = self.current_code.borrow_mut();
+                *current_code_mut = Some(task.code);
+                return Action::ShowWindow{title: task.title};
+            }
+        }
+        return Action::DoNothing;
+    }
 }
 
 fn parse_time(t: &str) -> i32 {
@@ -94,9 +145,9 @@ fn read_config(path: &str) -> Vec<Task> {
         }).collect()
 }
 
-fn build_ui(app: &Application) {
+fn build_ui(gtk_app: &Application, app_controller: &Rc<AppController>) {
     let window = ApplicationWindow::builder()
-        .application(app)
+        .application(gtk_app)
         .title("pinger")
         .default_width(400)
         .default_height(200)
@@ -131,7 +182,7 @@ fn build_ui(app: &Application) {
     buttons_box.append(&ans1_button);
     buttons_box.append(&ans2_button);
 
-    let info_label = Label::new(Some("Skips: 4\nStep: Пишу напоминалку"));
+    let info_label = Label::new(None);
     info_label.set_justify(gtk::Justification::Center);
     info_label.set_margin_top(15);
     ask_box.append(&info_label);
@@ -139,76 +190,49 @@ fn build_ui(app: &Application) {
 
     window.set_child(Some(&ask_box));
 
-    let window_clone = window.clone();
-    ans2_button.connect_clicked(move |_| {
-        window_clone.set_visible(false);
-    });
 
-    let statuses = Rc::new(RefCell::new(HashMap::<String, TaskStatus>::new()));
-    let current_task_code = Rc::new(RefCell::new(None::<String>));
-
-    let controller = gtk::EventControllerKey::new();
-    let ans1_clone = ans1_button.clone();
-    let ans2_clone = ans2_button.clone();
-
-    controller.connect_key_pressed(move |_, _, keycode, _| {
-        match keycode {
-            41 => {
-                ans1_clone.emit_clicked(); 
+    let execute = glib::clone!(
+        #[weak] window, #[weak] ask_label,
+        move |action: Action| {
+            match action {
+                Action::ShowWindow { title } => {
+                    ask_label.set_text(&title);
+                    window.present();
+                }
+                Action::HideWindow => {
+                    window.set_visible(false);
+                }
+                _ => {}
             }
-            44 => {
-                ans2_clone.emit_clicked();
-            }
-            _ => {}
         }
-        Propagation::Proceed
-    });
+    );
+
+    let controller = gtk::EventControllerKey::new(); 
+    let execute_clone = execute.clone();
+    controller.connect_key_pressed(glib::clone!(#[to_owned] app_controller,
+    move |_, _, keycode, _| -> Propagation {
+        execute_clone(app_controller.keypress(keycode));
+        return Propagation::Proceed;
+    }));
     window.add_controller(controller);
 
-    let widgets = AppWidgets {
-        window: window.clone(),
-        label: ask_label.clone(),
-        ans1: ans1_button.clone(),
-        ans2: ans2_button.clone(),
-        statuses: statuses.clone(),
-        current_task_code: current_task_code.clone(),
-    };
-
-    let statuses_clone = statuses.clone();
-    let current_code_clone = current_task_code.clone();
-    let window_clone = window.clone();
-
-    ans1_button.connect_clicked(move |_| {
-        if let Some(ref code) = *current_code_clone.borrow() {
-            let mut status_map = statuses_clone.borrow_mut();
-            let task_status = status_map.entry(code.clone()).or_insert_with(TaskStatus::default);
-            task_status.started = true;
-            window_clone.set_visible(false);
-        }
-    });
-
-    run_pinger_loop(widgets);
-}
-
-fn run_pinger_loop(widgets: AppWidgets) {
-    glib::spawn_future_local(async move {
+    let execute_clone = execute.clone();
+    ans1_button.connect_clicked(glib::clone!(#[to_owned] app_controller,
+    move |_| {
+        execute_clone(app_controller.click1());
+    }));
+    
+    let execute_clone = execute.clone();
+    ans2_button.connect_clicked(glib::clone!(#[to_owned] app_controller,
+    move |_| {
+        execute_clone(app_controller.click2());
+    }));
+    
+    let execute_clone = execute.clone();
+    glib::spawn_future_local(glib::clone!(#[to_owned] app_controller, async move {
         loop {
+            execute_clone(app_controller.regular());
             glib::timeout_future(std::time::Duration::from_secs(5)).await;
-            let tasks = read_config("local/test.txt");
-            
-            for task in tasks {
-                let is_started = {
-                    let mut status_map = widgets.statuses.borrow_mut();
-                    let task_status = status_map.entry(task.code.clone()).or_insert_with(TaskStatus::default);
-                    task_status.started
-                };
-                if task.start.unwrap_or(0) <= get_now() && !is_started {
-                    *widgets.current_task_code.borrow_mut() = Some(task.code.clone());
-                    widgets.label.set_text(&task.title);
-                    widgets.window.present();
-                    break;
-                }
-            }
         }
-    });
+    }));
 }
