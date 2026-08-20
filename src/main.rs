@@ -1,7 +1,8 @@
+use std::fs::metadata;
 use std::{fs, collections::HashMap, cell::RefCell, rc::Rc};
 
 //use rand::Rng;
-use chrono::{Local, Timelike};
+use chrono::{DateTime, Local, Utc};
 
 use gtk::glib;
 use gtk::glib::Propagation;
@@ -13,7 +14,11 @@ use gtk4_layer_shell::{Layer, LayerShell, KeyboardMode};
 
 fn get_now() -> i32 {
     let now = Local::now();
-    return (now.hour() * 60 + now.minute()) as i32;
+    return (now.timestamp() / 60) as i32;
+}
+
+fn minutes_to_day_start(s: i32) -> i32 {
+    return s - s % (24 * 60);
 }
 
 fn main() {
@@ -29,10 +34,11 @@ fn main() {
 }
 
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Task {
     start: Option<i32>,
     duration: Option<i32>,
+    restart: Option<i32>,
     title: String,
     code: String,
 }
@@ -53,23 +59,23 @@ pub enum Action {
 #[derive(Default)]
 pub struct AppController {
     statuses: Rc<RefCell<HashMap<String, TaskStatus>>>,
-    current_code: Rc<RefCell<Option<String>>>
+    current_task: Rc<RefCell<Option<Task>>>
 }
 
 impl AppController {
     pub fn click1(&self) -> Action {
-        if let Some(ref code) = *self.current_code.borrow() {
+        if let Some(ref task) = *self.current_task.borrow() {
             let mut status_map = self.statuses.borrow_mut();
-            let task_status = status_map.entry(code.clone()).or_insert_with(TaskStatus::default);
+            let task_status = status_map.entry(task.code.clone()).or_insert_with(TaskStatus::default);
             task_status.started = true;
         }
         return Action::HideWindow;
     }
     pub fn click2(&self) -> Action {
-        if let Some(ref code) = *self.current_code.borrow() {
+        if let Some(ref task) = *self.current_task.borrow() {
             let mut status_map = self.statuses.borrow_mut();
-            let task_status = status_map.entry(code.clone()).or_insert_with(TaskStatus::default);
-            task_status.real_start = Some(get_now() + 1);
+            let task_status = status_map.entry(task.code.clone()).or_insert_with(TaskStatus::default);
+            task_status.real_start = Some(get_now() + task.restart.unwrap_or(2));
         }
         return Action::HideWindow;
     }
@@ -88,16 +94,19 @@ impl AppController {
             panic!("Set HOME env variable!")
         }
         let tasks = read_config(&config_path);
-        
+       
+        let mut t_end = 0;
         for task in tasks {
             let mut status_map = self.statuses.borrow_mut();
             let task_status = status_map.entry(task.code.clone()).or_insert_with(TaskStatus::default);
             
-            let start = task_status.real_start.unwrap_or(task.start.unwrap_or(0));
+            let start = task_status.real_start.unwrap_or(task.start.unwrap_or(0)).max(t_end);
+            t_end = start + task.duration.unwrap_or(20);
             let now = get_now();
-            if start <= now && now <= start + task.duration.unwrap_or(20) && !task_status.started {
-                let mut current_code_mut = self.current_code.borrow_mut();
-                *current_code_mut = Some(task.code);
+            println!("start: {start}, end: {t_end}, now: {now}");
+            if start <= now && now <= t_end && !task_status.started {
+                let mut current_task_mut = self.current_task.borrow_mut();
+                *current_task_mut = Some(task.clone());
                 return Action::ShowWindow{title: task.title};
             }
         }
@@ -120,6 +129,17 @@ fn parse_time(t: &str) -> i32 {
 
 fn read_config(path: &str) -> Vec<Task> {
     //let mut rng = rand::thread_rng();
+    let day_start = minutes_to_day_start(
+        if let Ok(metadata) = fs::metadata(path) {
+            if let Ok(modif) = metadata.modified() {
+                (DateTime::<Utc>::from(modif).with_timezone(&Local).timestamp() / 60) as i32
+            } else {
+                get_now()
+            }
+        } else {
+            get_now()
+        });
+
     fs::read_to_string(path)
         .expect("Cannot read config!")
         .lines().map(String::from)
@@ -127,6 +147,7 @@ fn read_config(path: &str) -> Vec<Task> {
         .map(|s| {
             let mut start = None;
             let mut duration = None;
+            let mut restart = None;
             let mut title_parts = Vec::new();
             let mut code_opt = None;
             
@@ -134,9 +155,11 @@ fn read_config(path: &str) -> Vec<Task> {
                 if p.is_empty() {continue;}
                 
                 if p.starts_with('$') {
-                    start = Some(parse_time(&p[1..]));
+                    start = Some(day_start + parse_time(&p[1..]));
                 } else if p.starts_with('~') {
                     duration = Some(parse_time(&p[1..]));
+                } else if p.starts_with('*') {
+                    restart = Some(parse_time(&p[1..]));
                 } else if p.starts_with('@') {
                     code_opt = Some(p[1..].to_string());
                 } else {
@@ -147,7 +170,7 @@ fn read_config(path: &str) -> Vec<Task> {
             //let code = code_opt.unwrap_or_else(|| rng.gen_range(1000..99999).to_string());
             let code = code_opt.unwrap_or(start.unwrap().to_string());
 
-            Task{start, duration, title: title_parts.join(" "), code}
+            Task{start, duration, restart, title: title_parts.join(" "), code}
         }).collect()
 }
 
